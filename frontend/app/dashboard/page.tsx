@@ -6,7 +6,7 @@ import LeakScoreGauge from "@/components/LeakScoreGauge";
 import CategoryPieChart from "@/components/CategoryPieChart";
 import SubscriptionList from "@/components/SubscriptionList";
 import Link from "next/link";
-import WhatsAppTrigger from "@/components/WhatsAppTrigger";
+import WhatsAppSimulator from "@/components/WhatsAppSimulator";
 
 export default function DashboardPage() {
   const { data: summary, isLoading: summaryLoading } = useQuery({
@@ -160,7 +160,7 @@ export default function DashboardPage() {
       </div>
       {/* WhatsApp Intervention Simulator Widget */}
       {subsData?.subscriptions && subsData.subscriptions.length > 0 && (
-        <WhatsAppTrigger subscriptions={subsData.subscriptions} />
+        <WhatsAppSimulator subscriptions={subsData.subscriptions} />
       )}
     </div>
   );
