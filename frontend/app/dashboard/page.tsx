@@ -1,14 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getDashboardSummary, getSubscriptions } from "@/lib/api";
 import LeakScoreGauge from "@/components/LeakScoreGauge";
 import CategoryPieChart from "@/components/CategoryPieChart";
 import SubscriptionList from "@/components/SubscriptionList";
+import TransactionManager from "@/components/TransactionManager";
 import Link from "next/link";
 import WhatsAppSimulator from "@/components/WhatsAppSimulator";
 
 export default function DashboardPage() {
+  const [txnManagerOpen, setTxnManagerOpen] = useState(false);
+
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: getDashboardSummary,
@@ -75,12 +79,12 @@ export default function DashboardPage() {
             {summary?.total_subscriptions || 0} active subscriptions detected
           </p>
         </div>
-        <Link
-          href="/"
-          className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-gray-300 hover:bg-white/10 transition-all"
+        <button
+          onClick={() => setTxnManagerOpen(true)}
+          className="px-4 py-2 rounded-lg bg-gradient-to-r from-[#D85A30]/10 to-[#e8845f]/10 border border-[#D85A30]/20 text-sm text-[#D85A30] font-medium hover:from-[#D85A30]/20 hover:to-[#e8845f]/20 transition-all"
         >
-          + Add Data
-        </Link>
+          📊 Manage Data
+        </button>
       </div>
 
       {/* Summary Cards */}
@@ -162,6 +166,12 @@ export default function DashboardPage() {
       {subsData?.subscriptions && subsData.subscriptions.length > 0 && (
         <WhatsAppSimulator subscriptions={subsData.subscriptions} />
       )}
+
+      {/* Transaction Manager Drawer */}
+      <TransactionManager
+        isOpen={txnManagerOpen}
+        onClose={() => setTxnManagerOpen(false)}
+      />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   Subscription,
   SubscriptionListResponse,
   ActionResponse,
+  TransactionListResponse,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -176,5 +177,22 @@ export async function getGrowthSummary(): Promise<GrowthSummary> {
 export async function generateNegotiationScript(subscriptionId: string): Promise<NegotiateResponse> {
   return apiFetch<NegotiateResponse>(`/api/negotiate/${subscriptionId}`, {
     method: "POST",
+  });
+}
+
+// ── Transaction Management Endpoints ────────────────────────────────
+export async function getTransactions(): Promise<TransactionListResponse> {
+  return apiFetch<TransactionListResponse>("/api/ingest/transactions");
+}
+
+export async function deleteTransaction(id: string): Promise<{status: string, message: string, subscriptions_detected: number}> {
+  return apiFetch<{status: string, message: string, subscriptions_detected: number}>(`/api/ingest/transactions/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function clearAllData(): Promise<{status: string, message: string}> {
+  return apiFetch<{status: string, message: string}>("/api/ingest/transactions", {
+    method: "DELETE",
   });
 }

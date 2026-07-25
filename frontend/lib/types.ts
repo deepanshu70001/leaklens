@@ -133,6 +133,22 @@ export interface IngestResponse {
   message: string;
 }
 
+export interface TransactionRecord {
+  id: string;
+  merchant_raw: string;
+  merchant_normalized: string;
+  amount: number;
+  currency: string;
+  date: string | null;
+  source_type: string;
+  category: string;
+}
+
+export interface TransactionListResponse {
+  transactions: TransactionRecord[];
+  total: number;
+}
+
 export interface NegotiateResponse {
   subscription_id: string;
   merchant: string;

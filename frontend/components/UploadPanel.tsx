@@ -33,12 +33,8 @@ export default function UploadPanel() {
     setLoading(true);
     setError("");
     try {
-      const result = await ingestSMS(smsText);
-      if (result.subscriptions_detected > 0) {
-        router.push("/dashboard");
-      } else {
-        setError("No recurring subscriptions detected. Try pasting more transaction messages.");
-      }
+      await ingestSMS(smsText);
+      router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Failed to parse SMS text");
     } finally {
@@ -50,12 +46,8 @@ export default function UploadPanel() {
     setLoading(true);
     setError("");
     try {
-      const result = await ingestStatement(file);
-      if (result.subscriptions_detected > 0) {
-        router.push("/dashboard");
-      } else {
-        setError("No recurring subscriptions detected in this file.");
-      }
+      await ingestStatement(file);
+      router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Failed to parse file");
     } finally {

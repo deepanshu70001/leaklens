@@ -1,12 +1,17 @@
 """
-Ingest router — /api/ingest/sms, /statement, /demo (§5).
+Ingest router — /api/ingest/sms, /statement, /demo, /transactions (§5).
 Parses input, runs the full detection pipeline, and stores results.
+
+Data model:
+  - Demo: Every load wipes ALL user data, loads fresh sample. Fully isolated.
+  - User (SMS/Upload): Appends transactions. Subscriptions rebuilt from ALL user txns.
+  - Transactions API: View, delete individual, or clear all.
 """
 import os
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from bson import ObjectId
 
 from app.database import get_database
@@ -36,77 +41,84 @@ class IngestResponse(BaseModel):
     message: str
 
 
-async def _run_detection_pipeline(transactions: list[dict], user_id: str, db, is_demo: bool = False) -> dict:
+class TransactionOut(BaseModel):
+    id: str
+    merchant_raw: str
+    merchant_normalized: str
+    amount: float
+    currency: str
+    date: Optional[str] = None
+    source_type: str
+    category: str
+
+
+class TransactionListResponse(BaseModel):
+    transactions: List[TransactionOut]
+    total: int
+
+
+# ── Shared Helpers ───────────────────────────────────────────────────
+
+async def _wipe_all_user_data(user_id: str, db):
     """
-    Full detection pipeline:
-    1. Normalize merchants
-    2. Group by fuzzy matching
-    3. Detect recurring patterns
-    4. Detect price hikes
-    5. Compute leak scores + recommendations
-    6. Store everything in MongoDB
+    Nuclear wipe: remove ALL data for a user (transactions, subscriptions,
+    leak_scores, price_history, actions). Used by demo and clear-all.
     """
-    if not transactions:
-        return {"transactions_parsed": 0, "subscriptions_detected": 0}
+    user_oid = ObjectId(user_id)
 
-    # If user is uploading real data, auto-delete any demo transactions to avoid polluting results
-    if not is_demo:
-        await db.transactions.delete_many({"user_id": ObjectId(user_id), "is_demo": True})
-
-    # Step 1: Normalize merchant names
-    for txn in transactions:
-        txn["merchant_normalized"] = normalize_merchant(txn.get("merchant", txn.get("merchant_raw", "")))
-        txn["merchant_raw"] = txn.get("merchant", txn.get("merchant_raw", ""))
-
-    # Step 2: Group by fuzzy matching
-    all_normalized = [txn["merchant_normalized"] for txn in transactions if txn["merchant_normalized"]]
-    canonical_map = group_merchants(all_normalized)
-
-    for txn in transactions:
-        original = txn["merchant_normalized"]
-        txn["merchant_normalized"] = canonical_map.get(original, original)
-        txn["category"] = categorize_merchant(txn["merchant_normalized"])
-
-    # Step 3: Store transactions
-    txn_docs = []
-    for txn in transactions:
-        txn_docs.append({
-            "user_id": ObjectId(user_id),
-            "raw_text": txn.get("raw_text", "")[:500],  # Truncate for data minimization
-            "merchant_raw": txn.get("merchant_raw", ""),
-            "merchant_normalized": txn["merchant_normalized"],
-            "amount": txn["amount"],
-            "currency": txn.get("currency", "INR"),
-            "date": txn["date"],
-            "source_type": txn.get("source_type", "sms"),
-            "is_explicit_setup": txn.get("is_explicit_setup", False),
-            "category": txn.get("category", "other"),
-            "is_demo": is_demo,
-        })
-
-    if txn_docs:
-        await db.transactions.insert_many(txn_docs)
-
-    # Step 4: Detect recurring subscriptions across ALL historical transactions
-    all_txns = [t async for t in db.transactions.find({"user_id": ObjectId(user_id)})]
-    recurring = detect_recurring(all_txns)
-
-    # Fetch subscription IDs to properly cascade delete related data
-    sub_ids = [s["_id"] async for s in db.subscriptions.find({"user_id": ObjectId(user_id)}, {"_id": 1})]
+    # Cascade: get subscription IDs first, then delete children, then parents
+    sub_ids = [s["_id"] async for s in db.subscriptions.find({"user_id": user_oid}, {"_id": 1})]
     if sub_ids:
         await db.leak_scores.delete_many({"subscription_id": {"$in": sub_ids}})
         await db.price_history.delete_many({"subscription_id": {"$in": sub_ids}})
         await db.actions.delete_many({"subscription_id": {"$in": sub_ids}})
-    await db.subscriptions.delete_many({"user_id": ObjectId(user_id)})
+    await db.subscriptions.delete_many({"user_id": user_oid})
+    await db.transactions.delete_many({"user_id": user_oid})
+
+
+async def _rebuild_subscriptions(user_id: str, db) -> int:
+    """
+    Rebuild subscriptions from ALL stored transactions for this user.
+    1. Fetch all transactions from DB
+    2. Run recurring detection
+    3. Cascade-delete old subscriptions + scores + history
+    4. Insert new subscriptions + scores + history
+    Returns: number of subscriptions detected
+    """
+    user_oid = ObjectId(user_id)
+
+    # Fetch all stored transactions
+    all_txns = [t async for t in db.transactions.find({"user_id": user_oid})]
+
+    if not all_txns:
+        # No transactions → wipe any stale subscriptions
+        sub_ids = [s["_id"] async for s in db.subscriptions.find({"user_id": user_oid}, {"_id": 1})]
+        if sub_ids:
+            await db.leak_scores.delete_many({"subscription_id": {"$in": sub_ids}})
+            await db.price_history.delete_many({"subscription_id": {"$in": sub_ids}})
+            await db.actions.delete_many({"subscription_id": {"$in": sub_ids}})
+        await db.subscriptions.delete_many({"user_id": user_oid})
+        return 0
+
+    # Run detection
+    recurring = detect_recurring(all_txns)
+
+    # Cascade-delete old subscription data
+    sub_ids = [s["_id"] async for s in db.subscriptions.find({"user_id": user_oid}, {"_id": 1})]
+    if sub_ids:
+        await db.leak_scores.delete_many({"subscription_id": {"$in": sub_ids}})
+        await db.price_history.delete_many({"subscription_id": {"$in": sub_ids}})
+        await db.actions.delete_many({"subscription_id": {"$in": sub_ids}})
+    await db.subscriptions.delete_many({"user_id": user_oid})
 
     if not recurring:
-        return {"transactions_parsed": len(transactions), "subscriptions_detected": 0}
+        return 0
 
-    # Step 5: Store subscriptions and compute scores
+    # Insert new subscriptions
     sub_docs = []
     for sub in recurring:
         sub_doc = {
-            "user_id": ObjectId(user_id),
+            "user_id": user_oid,
             "merchant_normalized": sub["merchant_normalized"],
             "category": sub.get("category", categorize_merchant(sub["merchant_normalized"])),
             "frequency": sub["frequency"],
@@ -122,11 +134,10 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db, is
         sub_doc["dates"] = sub.get("dates", [])
         sub_docs.append(sub_doc)
 
-    # Step 6: Price history + hike detection
+    # Price history
     for sub_doc in sub_docs:
         amounts = sub_doc.get("amounts", [])
         dates = sub_doc.get("dates", [])
-
         if amounts and dates:
             price_history = build_price_history(amounts, dates)
             for ph in price_history:
@@ -136,7 +147,7 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db, is
                     "effective_date": ph["effective_date"],
                 })
 
-    # Step 7: Compute leak scores
+    # Leak scores
     all_subs_for_scoring = [
         {
             "merchant_normalized": s["merchant_normalized"],
@@ -171,11 +182,56 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db, is
             "computed_at": datetime.now(timezone.utc),
         })
 
-    return {
-        "transactions_parsed": len(transactions),
-        "subscriptions_detected": len(sub_docs),
-    }
+    return len(sub_docs)
 
+
+async def _normalize_and_store_transactions(
+    transactions: list[dict], user_id: str, db
+) -> int:
+    """
+    Normalize merchant names, store transactions in DB.
+    Returns: number of transactions stored.
+    """
+    if not transactions:
+        return 0
+
+    # Normalize merchant names
+    for txn in transactions:
+        txn["merchant_normalized"] = normalize_merchant(txn.get("merchant", txn.get("merchant_raw", "")))
+        txn["merchant_raw"] = txn.get("merchant", txn.get("merchant_raw", ""))
+
+    # Group by fuzzy matching
+    all_normalized = [txn["merchant_normalized"] for txn in transactions if txn["merchant_normalized"]]
+    canonical_map = group_merchants(all_normalized)
+
+    for txn in transactions:
+        original = txn["merchant_normalized"]
+        txn["merchant_normalized"] = canonical_map.get(original, original)
+        txn["category"] = categorize_merchant(txn["merchant_normalized"])
+
+    # Store in DB
+    txn_docs = []
+    for txn in transactions:
+        txn_docs.append({
+            "user_id": ObjectId(user_id),
+            "raw_text": txn.get("raw_text", "")[:500],
+            "merchant_raw": txn.get("merchant_raw", ""),
+            "merchant_normalized": txn["merchant_normalized"],
+            "amount": txn["amount"],
+            "currency": txn.get("currency", "INR"),
+            "date": txn["date"],
+            "source_type": txn.get("source_type", "sms"),
+            "is_explicit_setup": txn.get("is_explicit_setup", False),
+            "category": txn.get("category", "other"),
+        })
+
+    if txn_docs:
+        await db.transactions.insert_many(txn_docs)
+
+    return len(txn_docs)
+
+
+# ── Ingest Endpoints ─────────────────────────────────────────────────
 
 @router.post("/sms", response_model=IngestResponse)
 async def ingest_sms(
@@ -183,7 +239,10 @@ async def ingest_sms(
     db=Depends(get_database),
     current_user=Depends(get_current_user),
 ):
-    """Parse pasted SMS text and run detection pipeline."""
+    """
+    Parse pasted SMS text and APPEND to user's transaction history.
+    Then rebuild subscriptions from ALL accumulated transactions.
+    """
     sanitized = sanitize_text(request.raw_text)
     if not sanitized:
         raise HTTPException(status_code=400, detail="No text provided")
@@ -191,12 +250,13 @@ async def ingest_sms(
     transactions = await parse_sms_text(sanitized)
 
     user_id = str(current_user["_id"])
-    result = await _run_detection_pipeline(transactions, user_id, db)
+    stored_count = await _normalize_and_store_transactions(transactions, user_id, db)
+    sub_count = await _rebuild_subscriptions(user_id, db)
 
     return IngestResponse(
-        transactions_parsed=result["transactions_parsed"],
-        subscriptions_detected=result["subscriptions_detected"],
-        message=f"Successfully parsed {result['transactions_parsed']} transactions and detected {result['subscriptions_detected']} recurring subscriptions.",
+        transactions_parsed=stored_count,
+        subscriptions_detected=sub_count,
+        message=f"Successfully parsed {stored_count} transactions and detected {sub_count} recurring subscriptions.",
     )
 
 
@@ -206,8 +266,10 @@ async def ingest_statement(
     db=Depends(get_database),
     current_user=Depends(get_current_user),
 ):
-    """Parse uploaded CSV/PDF bank statement and run detection pipeline."""
-    # Validate file
+    """
+    Parse uploaded CSV/PDF bank statement and APPEND to user's transaction history.
+    Then rebuild subscriptions from ALL accumulated transactions.
+    """
     content = await file.read()
     if not validate_file_size(len(content)):
         raise HTTPException(status_code=400, detail=f"File too large. Max: {settings.MAX_UPLOAD_SIZE_MB}MB")
@@ -232,19 +294,18 @@ async def ingest_statement(
         transactions = await extract_transaction_from_image(base64_img, mime_type)
         for txn in transactions:
             txn["source_type"] = "screenshot"
-            # Explicitly flag image extractions as setup if they have an amount,
-            # as OCR receipts often only have 1 entry.
             txn["is_explicit_setup"] = True
     else:
         raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a CSV, PDF, or Image file (PNG/JPG).")
 
     user_id = str(current_user["_id"])
-    result = await _run_detection_pipeline(transactions, user_id, db)
+    stored_count = await _normalize_and_store_transactions(transactions, user_id, db)
+    sub_count = await _rebuild_subscriptions(user_id, db)
 
     return IngestResponse(
-        transactions_parsed=result["transactions_parsed"],
-        subscriptions_detected=result["subscriptions_detected"],
-        message=f"Successfully parsed {result['transactions_parsed']} transactions and detected {result['subscriptions_detected']} recurring subscriptions.",
+        transactions_parsed=stored_count,
+        subscriptions_detected=sub_count,
+        message=f"Successfully parsed {stored_count} transactions and detected {sub_count} recurring subscriptions.",
     )
 
 
@@ -255,10 +316,9 @@ async def ingest_demo(
     current_user=Depends(get_current_user),
 ):
     """
-    Load a bundled sample dataset — must always work with zero external dependency.
-    This endpoint does NOT require Groq or any external API.
+    Load a bundled sample dataset.
+    ALWAYS wipes ALL user data first for a completely fresh demo experience.
     """
-    # Resolve sample data file
     data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sample_datasets")
 
     dataset_files = {
@@ -275,18 +335,10 @@ async def ingest_demo(
     if not os.path.exists(filepath):
         raise HTTPException(status_code=500, detail=f"Sample dataset file not found: {filename}")
 
-    # Clear existing user data for fresh demo
     user_id = str(current_user["_id"])
-    user_oid = ObjectId(user_id)
-    await db.transactions.delete_many({"user_id": user_oid})
 
-    # Get subscription IDs before deleting
-    sub_ids = [s["_id"] async for s in db.subscriptions.find({"user_id": user_oid}, {"_id": 1})]
-    if sub_ids:
-        await db.leak_scores.delete_many({"subscription_id": {"$in": sub_ids}})
-        await db.price_history.delete_many({"subscription_id": {"$in": sub_ids}})
-        await db.actions.delete_many({"subscription_id": {"$in": sub_ids}})
-    await db.subscriptions.delete_many({"user_id": user_oid})
+    # WIPE everything for a clean demo
+    await _wipe_all_user_data(user_id, db)
 
     # Parse the sample file
     with open(filepath, "r", encoding="utf-8") as f:
@@ -306,10 +358,92 @@ async def ingest_demo(
                 parsed["source_type"] = "sms"
                 transactions.append(parsed)
 
-    result = await _run_detection_pipeline(transactions, user_id, db, is_demo=True)
+    stored_count = await _normalize_and_store_transactions(transactions, user_id, db)
+    sub_count = await _rebuild_subscriptions(user_id, db)
 
     return IngestResponse(
-        transactions_parsed=result["transactions_parsed"],
-        subscriptions_detected=result["subscriptions_detected"],
-        message=f"Demo data loaded! Found {result['subscriptions_detected']} recurring subscriptions from {result['transactions_parsed']} transactions.",
+        transactions_parsed=stored_count,
+        subscriptions_detected=sub_count,
+        message=f"Demo data loaded! Found {sub_count} recurring subscriptions from {stored_count} transactions.",
     )
+
+
+# ── Transaction Management Endpoints ─────────────────────────────────
+
+@router.get("/transactions", response_model=TransactionListResponse)
+async def list_transactions(
+    db=Depends(get_database),
+    current_user=Depends(get_current_user),
+):
+    """List all transactions for the current user."""
+    user_id = ObjectId(str(current_user["_id"]))
+
+    transactions = []
+    async for txn in db.transactions.find({"user_id": user_id}).sort("date", -1):
+        date_str = None
+        if txn.get("date"):
+            try:
+                date_str = txn["date"].isoformat() if hasattr(txn["date"], "isoformat") else str(txn["date"])
+            except Exception:
+                date_str = str(txn["date"])
+
+        transactions.append(TransactionOut(
+            id=str(txn["_id"]),
+            merchant_raw=txn.get("merchant_raw", ""),
+            merchant_normalized=txn.get("merchant_normalized", ""),
+            amount=txn.get("amount", 0),
+            currency=txn.get("currency", "INR"),
+            date=date_str,
+            source_type=txn.get("source_type", "sms"),
+            category=txn.get("category", "other"),
+        ))
+
+    return TransactionListResponse(transactions=transactions, total=len(transactions))
+
+
+@router.delete("/transactions/{transaction_id}")
+async def delete_transaction(
+    transaction_id: str,
+    db=Depends(get_database),
+    current_user=Depends(get_current_user),
+):
+    """Delete a single transaction and rebuild subscriptions."""
+    user_id = str(current_user["_id"])
+    user_oid = ObjectId(user_id)
+
+    try:
+        txn_oid = ObjectId(transaction_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid transaction ID")
+
+    # Verify ownership
+    txn = await db.transactions.find_one({"_id": txn_oid, "user_id": user_oid})
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Delete the transaction
+    await db.transactions.delete_one({"_id": txn_oid})
+
+    # Rebuild subscriptions from remaining transactions
+    sub_count = await _rebuild_subscriptions(user_id, db)
+
+    return {
+        "status": "deleted",
+        "message": f"Transaction removed. {sub_count} subscriptions detected from remaining data.",
+        "subscriptions_detected": sub_count,
+    }
+
+
+@router.delete("/transactions")
+async def clear_all_data(
+    db=Depends(get_database),
+    current_user=Depends(get_current_user),
+):
+    """Clear ALL user data: transactions, subscriptions, scores, history, actions."""
+    user_id = str(current_user["_id"])
+    await _wipe_all_user_data(user_id, db)
+
+    return {
+        "status": "cleared",
+        "message": "All data has been cleared successfully.",
+    }
