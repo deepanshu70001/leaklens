@@ -162,6 +162,14 @@ export async function ghostCancelSubscription(subscriptionId: string): Promise<{
   });
 }
 
+// ── WhatsApp Integration ─────────────────────────────────────────────
+export async function triggerLiveWhatsAppAlert(subscriptionId: string): Promise<{status: string, message_sid: string}> {
+  return apiFetch<{status: string, message_sid: string}>(`/api/whatsapp/trigger`, {
+    method: "POST",
+    body: JSON.stringify({ subscription_id: subscriptionId }),
+  });
+}
+
 // ── Dashboard Endpoint ──────────────────────────────────────────────
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   return apiFetch<DashboardSummary>("/api/dashboard/summary");

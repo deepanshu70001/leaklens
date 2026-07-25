@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     GROQ_VISION_MODEL: str = "llama-3.2-11b-vision-preview"
     GROQ_TIMEOUT_SECONDS: int = 8
 
+    # ── Twilio WhatsApp ──────────────────────────────────────────────
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_FROM_NUMBER: str = ""
+    TWILIO_TO_NUMBER: str = ""
+
     # ── JWT Auth ─────────────────────────────────────────────────────
     JWT_SECRET: str = "dev-secret-change-in-production"
     JWT_ALGORITHM: str = "HS256"

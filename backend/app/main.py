@@ -76,6 +76,7 @@ from app.routers import (
     actions_router,
     growth_router,
     negotiate_router,
+    whatsapp_router,
 )
 
 app.include_router(auth_router.router)
@@ -85,3 +86,4 @@ app.include_router(dashboard_router.router)
 app.include_router(actions_router.router)
 app.include_router(growth_router.router)
 app.include_router(negotiate_router.router)
+app.include_router(whatsapp_router.router)
