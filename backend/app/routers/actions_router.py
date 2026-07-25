@@ -103,3 +103,62 @@ def _action_message(action: str, merchant: str, money_recovered: float) -> str:
         return f"Marked {merchant} for renegotiation. Use the negotiation script to contact their support team."
     else:
         return f"Keeping {merchant}. Good choice if it provides value."
+
+
+@router.post("/{subscription_id}/ghost-cancel")
+async def ghost_cancel(
+    subscription_id: str,
+    db=Depends(get_database),
+    current_user=Depends(get_current_user),
+):
+    """
+    Simulates sending an automated cancellation email on behalf of the user.
+    """
+    user_id = ObjectId(str(current_user["_id"]))
+
+    try:
+        sub = await db.subscriptions.find_one({
+            "_id": ObjectId(subscription_id),
+            "user_id": user_id,
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid subscription ID")
+
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    merchant = sub.get("merchant_normalized", "Unknown")
+    amount = sub.get("current_amount", 0)
+    
+    # Calculate tenure
+    first_seen = sub.get("first_seen")
+    tenure_months = 1
+    if first_seen:
+        diff = datetime.now(timezone.utc) - first_seen.replace(tzinfo=timezone.utc)
+        tenure_months = max(1, diff.days // 30)
+
+    # Use the negotiation script generator for the cancellation email
+    from app.services.groq_client import generate_negotiation_script
+    draft = await generate_negotiation_script(
+        merchant=merchant,
+        action="cancel",
+        amount=amount,
+        tenure_months=tenure_months,
+        reason="I no longer need this service and wish to close my account immediately.",
+    )
+
+    # In a real app, this is where smtplib or Gmail API would be triggered.
+    # For the hackathon, we simulate success for demo magic.
+    
+    # Also record the cancellation action automatically
+    await db.subscriptions.update_one(
+        {"_id": sub["_id"]},
+        {"$set": {"status": "canceled"}},
+    )
+
+    return {
+        "status": "success",
+        "message": f"Ghost Cancellation dispatched to {merchant} Support.",
+        "draft": draft,
+        "subscription_id": subscription_id
+    }

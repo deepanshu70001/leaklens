@@ -73,9 +73,16 @@ async def generate_full_recommendation(
         redundant_with=redundant_with,
     )
 
+    # Check for Dark Patterns if the recommendation is to cancel or renegotiate
+    dark_pattern_data = {"has_dark_pattern": False, "warning": "", "escape_route": []}
+    if score_data["recommendation"] in ["cancel", "renegotiate"]:
+        from app.services.groq_client import generate_dark_pattern_warning
+        dark_pattern_data = await generate_dark_pattern_warning(subscription.get("merchant_normalized", "Unknown"))
+
     return {
         "score": score_data["score"],
         "components": score_data["components"],
         "recommendation": score_data["recommendation"],
         "reason": reason,
+        "dark_pattern": dark_pattern_data,
     }

@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
-import { getSubscriptionDetail, generateNegotiationScript } from "@/lib/api";
+import { getSubscriptionDetail, generateNegotiationScript, ghostCancelSubscription } from "@/lib/api";
 import { useState } from "react";
 import {
   LineChart,
@@ -23,6 +23,7 @@ export default function SubscriptionDetailPage() {
 
   const [negotiationMessage, setNegotiationMessage] = useState<string | null>(null);
   const [negLoading, setNegLoading] = useState(false);
+  const [ghostLoading, setGhostLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const { data: sub, isLoading } = useQuery({
@@ -49,6 +50,24 @@ export default function SubscriptionDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
     queryClient.invalidateQueries({ queryKey: ["growth-summary"] });
     setTimeout(() => setToast(null), 5000);
+  };
+
+  const handleGhostCancel = async () => {
+    setGhostLoading(true);
+    try {
+      const result = await ghostCancelSubscription(id);
+      setToast(result.message);
+      queryClient.invalidateQueries({ queryKey: ["subscription", id] });
+      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["growth-summary"] });
+      setTimeout(() => setToast(null), 5000);
+    } catch (err: any) {
+      setToast(err.message || "Failed to dispatch cancellation email.");
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setGhostLoading(false);
+    }
   };
 
   if (isLoading) {
@@ -132,6 +151,28 @@ export default function SubscriptionDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Dark Pattern Alert */}
+      {sub.dark_pattern?.has_dark_pattern && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 mb-6 animate-in fade-in">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xl">🕵️</span>
+            <h3 className="text-sm font-bold text-red-400 uppercase tracking-wide">Dark Pattern Detected</h3>
+          </div>
+          <p className="text-white text-sm leading-relaxed mb-4">{sub.dark_pattern.warning}</p>
+          <div className="bg-black/20 rounded-lg p-4 border border-red-500/20">
+            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Escape Route</h4>
+            <ul className="space-y-2">
+              {sub.dark_pattern.escape_route?.map((step: string, idx: number) => (
+                <li key={idx} className="flex gap-3 text-sm text-gray-300">
+                  <span className="text-red-400/80 font-bold shrink-0">{idx + 1}.</span>
+                  <span className="leading-snug">{step}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Score Components */}
       {sub.score_components && (
@@ -223,7 +264,18 @@ export default function SubscriptionDetailPage() {
 
       {/* Action Buttons */}
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5 mb-6">
-        <h3 className="text-sm font-medium text-gray-400 mb-3">Take Action</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-medium text-gray-400">Take Action</h3>
+          {sub.status !== "canceled" && (
+            <button
+              onClick={handleGhostCancel}
+              disabled={ghostLoading}
+              className="px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/40 hover:to-pink-500/40 border border-purple-500/30 rounded-lg text-sm font-semibold text-purple-200 transition-all shadow-[0_0_15px_rgba(168,85,247,0.15)] flex items-center gap-2 disabled:opacity-50"
+            >
+              {ghostLoading ? "👻 Dispatching..." : "👻 Ghost Cancel"}
+            </button>
+          )}
+        </div>
         <ActionButtons
           subscriptionId={id}
           currentRecommendation={sub.recommendation}

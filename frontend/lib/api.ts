@@ -156,6 +156,12 @@ export async function takeAction(
   });
 }
 
+export async function ghostCancelSubscription(subscriptionId: string): Promise<{status: string, message: string, draft: string}> {
+  return apiFetch<{status: string, message: string, draft: string}>(`/api/subscriptions/${subscriptionId}/ghost-cancel`, {
+    method: "POST",
+  });
+}
+
 // ── Dashboard Endpoint ──────────────────────────────────────────────
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   return apiFetch<DashboardSummary>("/api/dashboard/summary");

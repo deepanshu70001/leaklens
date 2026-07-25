@@ -159,6 +159,7 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db) ->
             "components": rec["components"],
             "recommendation": rec["recommendation"],
             "reason": rec["reason"],
+            "dark_pattern": rec.get("dark_pattern"),
             "computed_at": datetime.now(timezone.utc),
         })
 
