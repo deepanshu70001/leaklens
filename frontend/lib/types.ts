@@ -54,6 +54,11 @@ export interface Subscription {
   price_history: PriceHistoryEntry[];
   price_hike_detected: boolean;
   price_hike_pct: number | null;
+  dark_pattern?: {
+    has_dark_pattern: boolean;
+    warning: string;
+    escape_route: string[];
+  };
   transactions?: Transaction[];
   actions?: ActionRecord[];
 }
