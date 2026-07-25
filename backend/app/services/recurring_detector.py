@@ -45,6 +45,26 @@ def detect_recurring(
         txns_sorted = sorted(txns, key=lambda t: t["date"])
 
         if len(txns_sorted) < settings.RECURRING_MIN_OCCURRENCES:
+            # If there's only 1 transaction, check if it's explicitly an auto-pay setup
+            is_explicit = any(t.get("is_explicit_setup", False) for t in txns_sorted)
+            if not is_explicit:
+                continue
+            
+            # For a single explicit setup message, we assume it's a monthly subscription
+            amounts = [t["amount"] for t in txns_sorted]
+            dates = [t["date"] for t in txns_sorted]
+            results.append({
+                "merchant_normalized": merchant,
+                "frequency": "monthly", # Default assumed frequency
+                "first_seen": dates[0],
+                "last_seen": dates[-1],
+                "current_amount": amounts[-1],
+                "amounts": amounts,
+                "dates": dates,
+                "transaction_count": len(txns_sorted),
+                "category": txns_sorted[0].get("category", "other"),
+                "currency": txns_sorted[0].get("currency", "INR"),
+            })
             continue
 
         # Compute inter-charge day gaps

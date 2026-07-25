@@ -60,6 +60,13 @@ PATTERN_SBI = re.compile(
     re.IGNORECASE
 )
 
+# Pattern 7: "Congratulations! Automatic payment of Rs.139 for Apple Media Services has been setup successfully - Paytm"
+PATTERN_AUTOPAY_SETUP = re.compile(
+    r'(?:Automatic\s+payment|Autopay|Mandate)\s+(?:of|for)?\s*(?:Rs\.?|INR|₹)\s*([\d,]+\.?\d*)\s+'
+    r'for\s+(.+?)\s+has\s+been\s+(?:setup|created|registered)',
+    re.IGNORECASE
+)
+
 
 def _parse_amount(amount_str: str) -> float:
     """Parse amount string like '1,499.00' to float."""
@@ -158,6 +165,20 @@ def parse_sms_line(line: str) -> Optional[dict]:
             "raw_text": line,
         }
 
+    # Try Pattern 7: Auto-pay Setup
+    m = PATTERN_AUTOPAY_SETUP.search(line)
+    if m:
+        # Auto-pay setup might not have a date explicitly in the text (like this example), 
+        # so we fallback to today's date if missing.
+        return {
+            "merchant": m.group(2).strip(),
+            "amount": _parse_amount(m.group(1)),
+            "currency": "INR",
+            "date": datetime.now(),
+            "raw_text": line,
+            "is_explicit_setup": True, # Flag it for the recurring detector
+        }
+
     return None
 
 
@@ -185,6 +206,7 @@ async def parse_sms_text(raw_text: str) -> list[dict]:
                     "currency": groq_result.get("currency", "INR"),
                     "date": date or datetime.now(),
                     "raw_text": line,
+                    "is_explicit_setup": any(kw in line.lower() for kw in ["automatic payment", "auto-pay", "autopay", "mandate", "subscription setup"]),
                 })
 
     return results
