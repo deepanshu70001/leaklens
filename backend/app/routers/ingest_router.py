@@ -75,15 +75,20 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db) ->
             "currency": txn.get("currency", "INR"),
             "date": txn["date"],
             "source_type": txn.get("source_type", "sms"),
+            "is_explicit_setup": txn.get("is_explicit_setup", False),
+            "category": txn.get("category", "other"),
         })
 
     if txn_docs:
         await db.transactions.insert_many(txn_docs)
 
-    # Step 4: Detect recurring subscriptions
-    recurring = detect_recurring(transactions)
+    # Step 4: Detect recurring subscriptions across ALL historical transactions
+    all_txns = [t async for t in db.transactions.find({"user_id": ObjectId(user_id)})]
+    recurring = detect_recurring(all_txns)
 
     if not recurring:
+        # Clear any existing subscriptions if none are detected anymore
+        await db.subscriptions.delete_many({"user_id": ObjectId(user_id)})
         return {"transactions_parsed": len(transactions), "subscriptions_detected": 0}
 
     # Step 5: Store subscriptions and compute scores
