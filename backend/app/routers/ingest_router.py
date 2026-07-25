@@ -36,7 +36,7 @@ class IngestResponse(BaseModel):
     message: str
 
 
-async def _run_detection_pipeline(transactions: list[dict], user_id: str, db) -> dict:
+async def _run_detection_pipeline(transactions: list[dict], user_id: str, db, is_demo: bool = False) -> dict:
     """
     Full detection pipeline:
     1. Normalize merchants
@@ -48,6 +48,10 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db) ->
     """
     if not transactions:
         return {"transactions_parsed": 0, "subscriptions_detected": 0}
+
+    # If user is uploading real data, auto-delete any demo transactions to avoid polluting results
+    if not is_demo:
+        await db.transactions.delete_many({"user_id": ObjectId(user_id), "is_demo": True})
 
     # Step 1: Normalize merchant names
     for txn in transactions:
@@ -77,6 +81,7 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db) ->
             "source_type": txn.get("source_type", "sms"),
             "is_explicit_setup": txn.get("is_explicit_setup", False),
             "category": txn.get("category", "other"),
+            "is_demo": is_demo,
         })
 
     if txn_docs:
@@ -86,20 +91,18 @@ async def _run_detection_pipeline(transactions: list[dict], user_id: str, db) ->
     all_txns = [t async for t in db.transactions.find({"user_id": ObjectId(user_id)})]
     recurring = detect_recurring(all_txns)
 
+    # Fetch subscription IDs to properly cascade delete related data
+    sub_ids = [s["_id"] async for s in db.subscriptions.find({"user_id": ObjectId(user_id)}, {"_id": 1})]
+    if sub_ids:
+        await db.leak_scores.delete_many({"subscription_id": {"$in": sub_ids}})
+        await db.price_history.delete_many({"subscription_id": {"$in": sub_ids}})
+        await db.actions.delete_many({"subscription_id": {"$in": sub_ids}})
+    await db.subscriptions.delete_many({"user_id": ObjectId(user_id)})
+
     if not recurring:
-        # Clear any existing subscriptions if none are detected anymore
-        await db.subscriptions.delete_many({"user_id": ObjectId(user_id)})
         return {"transactions_parsed": len(transactions), "subscriptions_detected": 0}
 
     # Step 5: Store subscriptions and compute scores
-    # First, clear existing data for this user (re-ingest replaces)
-    await db.subscriptions.delete_many({"user_id": ObjectId(user_id)})
-    await db.leak_scores.delete_many({
-        "subscription_id": {"$in": [
-            s["_id"] async for s in db.subscriptions.find({"user_id": ObjectId(user_id)}, {"_id": 1})
-        ]}
-    })
-
     sub_docs = []
     for sub in recurring:
         sub_doc = {
@@ -303,7 +306,7 @@ async def ingest_demo(
                 parsed["source_type"] = "sms"
                 transactions.append(parsed)
 
-    result = await _run_detection_pipeline(transactions, user_id, db)
+    result = await _run_detection_pipeline(transactions, user_id, db, is_demo=True)
 
     return IngestResponse(
         transactions_parsed=result["transactions_parsed"],
