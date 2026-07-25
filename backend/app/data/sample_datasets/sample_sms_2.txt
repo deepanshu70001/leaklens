@@ -1,0 +1,25 @@
+HDFC Bank: Rs.499.00 debited from a/c XXXX1234 on 08-Jan-2024 at HOTSTAR PREMIUM. Avl bal: Rs.32,100.50
+HDFC Bank: Rs.499.00 debited from a/c XXXX1234 on 08-Feb-2024 at HOTSTAR PREMIUM. Avl bal: Rs.31,600.00
+HDFC Bank: Rs.499.00 debited from a/c XXXX1234 on 08-Mar-2024 at HOTSTAR PREMIUM. Avl bal: Rs.30,900.00
+HDFC Bank: Rs.499.00 debited from a/c XXXX1234 on 08-Apr-2024 at HOTSTAR PREMIUM. Avl bal: Rs.30,200.00
+HDFC Bank: Rs.499.00 debited from a/c XXXX1234 on 08-May-2024 at HOTSTAR PREMIUM. Avl bal: Rs.29,500.00
+HDFC Bank: Rs.599.00 debited from a/c XXXX1234 on 08-Jun-2024 at HOTSTAR PREMIUM. Avl bal: Rs.28,700.00
+HDFC Bank: Rs.599.00 debited from a/c XXXX1234 on 08-Jul-2024 at HOTSTAR PREMIUM. Avl bal: Rs.27,900.00
+ICICI: INR 2,499.00 charged to card XX8876 on 15-Jan-2024 for MICROSOFT 365 FAMILY. Ref#TXN9012345
+ICICI: INR 2,499.00 charged to card XX8876 on 15-Jul-2024 for MICROSOFT 365 FAMILY. Ref#TXN9012399
+PAYPAL *NORDVPN: Rs.350.00 debited from a/c XXXX1234 on 02-Jan-2024. Bal: Rs.33,000.00
+PAYPAL *NORDVPN: Rs.350.00 debited from a/c XXXX1234 on 02-Feb-2024. Bal: Rs.32,400.00
+PAYPAL *NORDVPN: Rs.350.00 debited from a/c XXXX1234 on 02-Mar-2024. Bal: Rs.31,700.00
+PAYPAL *NORDVPN: Rs.350.00 debited from a/c XXXX1234 on 02-Apr-2024. Bal: Rs.31,000.00
+PAYPAL *NORDVPN: Rs.350.00 debited from a/c XXXX1234 on 02-May-2024. Bal: Rs.30,200.00
+PAYPAL *NORDVPN: Rs.350.00 debited from a/c XXXX1234 on 02-Jun-2024. Bal: Rs.29,400.00
+PAYPAL *NORDVPN: Rs.350.00 debited from a/c XXXX1234 on 02-Jul-2024. Bal: Rs.28,500.00
+SBI Alert: Rs.199.00 debited from a/c XX6789 on 10-Feb-2024 for GOOGLE ONE STORAGE. Ref 9988776655
+SBI Alert: Rs.199.00 debited from a/c XX6789 on 10-Mar-2024 for GOOGLE ONE STORAGE. Ref 9988776688
+SBI Alert: Rs.199.00 debited from a/c XX6789 on 10-Apr-2024 for GOOGLE ONE STORAGE. Ref 9988776699
+SBI Alert: Rs.199.00 debited from a/c XX6789 on 10-May-2024 for GOOGLE ONE STORAGE. Ref 9988776711
+SBI Alert: Rs.199.00 debited from a/c XX6789 on 10-Jun-2024 for GOOGLE ONE STORAGE. Ref 9988776722
+SBI Alert: Rs.199.00 debited from a/c XX6789 on 10-Jul-2024 for GOOGLE ONE STORAGE. Ref 9988776733
+UPI/P2M/612345690/ZOMATO GOLD/zomato@paytm: Rs.300.00 debited from a/c XX6789 on 01-Jan-2024
+UPI/P2M/612345691/ZOMATO GOLD/zomato@paytm: Rs.300.00 debited from a/c XX6789 on 01-Feb-2024
+UPI/P2M/612345692/ZOMATO GOLD/zomato@paytm: Rs.300.00 debited from a/c XX6789 on 01-Mar-2024
