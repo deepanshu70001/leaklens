@@ -157,8 +157,8 @@ export default function UploadPanel() {
         {activeTab === "upload" && (
           <div className="space-y-4">
             <div>
-              <h3 className="text-lg font-semibold text-white mb-1">Upload Statement</h3>
-              <p className="text-gray-400 text-sm">Upload a CSV or PDF bank statement (max 5MB).</p>
+              <h3 className="text-lg font-semibold text-white mb-1">Upload Statement or Screenshot</h3>
+              <p className="text-gray-400 text-sm">Upload a CSV/PDF statement or a screenshot (PNG/JPG).</p>
             </div>
             <div
               onDrop={onDrop}
@@ -175,7 +175,7 @@ export default function UploadPanel() {
               <p className="text-gray-500 text-sm mb-4">or click to browse</p>
               <input
                 type="file"
-                accept=".csv,.pdf"
+                accept=".csv,.pdf,image/png,image/jpeg,image/jpg"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleFileUpload(file);

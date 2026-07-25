@@ -91,6 +91,72 @@ async def extract_transaction_from_text(raw_text: str) -> Optional[dict]:
     return None
 
 
+async def extract_transaction_from_image(base64_image: str, mime_type: str) -> list[dict]:
+    """
+    Passes an image (screenshot/receipt) to Groq Vision LLM to extract all transactions found.
+    Returns a list of parsed transaction dicts or empty list on failure.
+    """
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert OCR and financial parsing assistant. "
+                "Analyze the provided image of a bank statement, SMS screenshot, or receipt. "
+                "Extract all recurring transactions or payments. "
+                "Return a JSON array of objects with keys: 'merchant' (string), 'amount' (number), 'currency' (string, default 'INR'), 'date' (string, 'YYYY-MM-DD'). "
+                "If no transactions are found, return []. "
+                "Return ONLY the raw JSON array. No prose, no markdown formatting."
+            ),
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Extract all transactions from this image."},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{base64_image}"
+                    },
+                },
+            ],
+        },
+    ]
+
+    result = await _call_groq(
+        messages=messages,
+        model=settings.GROQ_VISION_MODEL,
+        temperature=0.1,
+        max_tokens=512,
+    )
+
+    if result:
+        try:
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                cleaned = cleaned.rsplit("```", 1)[0]
+            
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, list):
+                # Ensure float amounts
+                for txn in parsed:
+                    if "amount" in txn and txn["amount"] is not None:
+                        txn["amount"] = float(txn["amount"])
+                    # Check if it implies explicit auto-pay
+                    # Without text line, we can't do the strict regex, but we assume
+                    # if the user uploaded a screenshot of a mandate setup, we flag it.
+                    # We can instruct the prompt or just leave it False (relying on 2 occurences)
+                    txn["is_explicit_setup"] = False 
+                return parsed
+            elif isinstance(parsed, dict) and "merchant" in parsed:
+                parsed["amount"] = float(parsed["amount"])
+                parsed["is_explicit_setup"] = False
+                return [parsed]
+        except (json.JSONDecodeError, IndexError, ValueError, TypeError):
+            return []
+    return []
+
+
 async def generate_recommendation_reason(
     merchant: str,
     recommendation: str,

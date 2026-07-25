@@ -206,6 +206,9 @@ async def ingest_statement(
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
+    import base64
+    from app.services.groq_client import extract_transaction_from_image
+
     if ext == "csv":
         transactions = parse_csv_statement(content.decode("utf-8", errors="replace"))
         for txn in transactions:
@@ -214,8 +217,17 @@ async def ingest_statement(
         transactions = parse_pdf_statement(content)
         for txn in transactions:
             txn["source_type"] = "statement"
+    elif ext in ["png", "jpg", "jpeg"]:
+        mime_type = f"image/{'jpeg' if ext == 'jpg' else ext}"
+        base64_img = base64.b64encode(content).decode("utf-8")
+        transactions = await extract_transaction_from_image(base64_img, mime_type)
+        for txn in transactions:
+            txn["source_type"] = "screenshot"
+            # Explicitly flag image extractions as setup if they have an amount,
+            # as OCR receipts often only have 1 entry.
+            txn["is_explicit_setup"] = True
     else:
-        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a CSV or PDF file.")
+        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a CSV, PDF, or Image file (PNG/JPG).")
 
     user_id = str(current_user["_id"])
     result = await _run_detection_pipeline(transactions, user_id, db)

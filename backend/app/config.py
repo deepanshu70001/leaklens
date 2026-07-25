@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_EXTRACTION_MODEL: str = "llama-3.3-70b-versatile"
     GROQ_REASONING_MODEL: str = "llama-3.1-8b-instant"
+    GROQ_VISION_MODEL: str = "llama-3.2-11b-vision-preview"
     GROQ_TIMEOUT_SECONDS: int = 8
 
     # ── JWT Auth ─────────────────────────────────────────────────────
