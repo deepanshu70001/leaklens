@@ -6,7 +6,23 @@ from datetime import datetime
 from typing import Optional
 import pandas as pd
 from app.services.groq_client import extract_transaction_from_text
+from app.config import CATEGORY_MAP
+from app.services.merchant_normalizer import normalize_merchant
 
+def _is_known_subscription(merchant: str, raw_text: str) -> bool:
+    """Check if merchant is a known subscription provider or text contains keywords."""
+    if normalize_merchant(merchant) in CATEGORY_MAP:
+        return True
+    
+    merchant_lower = merchant.lower()
+    text_lower = raw_text.lower()
+    keywords = ["subscription", "prime video", "netflix", "hotstar", "zee5", "spotify", "membership"]
+    if any(kw in merchant_lower for kw in keywords):
+        return True
+    if any(kw in text_lower for kw in ["subscription", "auto-pay", "autopay", "mandate", "automatic payment"]):
+        return True
+        
+    return False
 
 # ── Regex patterns for common Indian bank SMS formats ────────────────
 
@@ -192,6 +208,8 @@ async def parse_sms_text(raw_text: str) -> list[dict]:
     for line in lines:
         parsed = parse_sms_line(line)
         if parsed and parsed.get("merchant") and parsed.get("amount"):
+            if not parsed.get("is_explicit_setup"):
+                parsed["is_explicit_setup"] = _is_known_subscription(parsed["merchant"], parsed["raw_text"])
             results.append(parsed)
         else:
             # Groq fallback for lines regex can't handle
@@ -206,7 +224,7 @@ async def parse_sms_text(raw_text: str) -> list[dict]:
                     "currency": groq_result.get("currency", "INR"),
                     "date": date or datetime.now(),
                     "raw_text": line,
-                    "is_explicit_setup": any(kw in line.lower() for kw in ["automatic payment", "auto-pay", "autopay", "mandate", "subscription setup"]),
+                    "is_explicit_setup": groq_result.get("is_subscription", False) or _is_known_subscription(groq_result["merchant"], line),
                 })
 
     return results

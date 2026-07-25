@@ -63,9 +63,9 @@ async def extract_transaction_from_text(raw_text: str) -> Optional[dict]:
             "role": "system",
             "content": (
                 "You are a financial transaction parser. Given one line of raw SMS or email "
-                "text, extract merchant name, amount, currency, and date if present. Return ONLY a "
-                'JSON object: {"merchant": string|null, "amount": number|null, "currency": string|null, '
-                '"date": string|null}. Do not invent values you cannot find. No prose, no markdown.'
+                "text, extract merchant name, amount, currency, and date if present. Also determine if this is likely a recurring subscription payment. "
+                "Return ONLY a JSON object: {\"merchant\": string|null, \"amount\": number|null, \"currency\": string|null, "
+                "\"date\": string|null, \"is_subscription\": boolean}. Do not invent values you cannot find. No prose, no markdown."
             ),
         },
         {"role": "user", "content": redacted},
@@ -103,7 +103,7 @@ async def extract_transaction_from_image(base64_image: str, mime_type: str) -> l
                 "You are an expert OCR and financial parsing assistant. "
                 "Analyze the provided image of a bank statement, SMS screenshot, or receipt. "
                 "Extract all recurring transactions or payments. "
-                "Return a JSON array of objects with keys: 'merchant' (string), 'amount' (number), 'currency' (string, default 'INR'), 'date' (string, 'YYYY-MM-DD'). "
+                "Return a JSON array of objects with keys: 'merchant' (string), 'amount' (number), 'currency' (string, default 'INR'), 'date' (string, 'YYYY-MM-DD'), 'is_subscription' (boolean). "
                 "If no transactions are found, return []. "
                 "Return ONLY the raw JSON array. No prose, no markdown formatting."
             ),
@@ -143,14 +143,11 @@ async def extract_transaction_from_image(base64_image: str, mime_type: str) -> l
                     if "amount" in txn and txn["amount"] is not None:
                         txn["amount"] = float(txn["amount"])
                     # Check if it implies explicit auto-pay
-                    # Without text line, we can't do the strict regex, but we assume
-                    # if the user uploaded a screenshot of a mandate setup, we flag it.
-                    # We can instruct the prompt or just leave it False (relying on 2 occurences)
-                    txn["is_explicit_setup"] = False 
+                    txn["is_explicit_setup"] = txn.get("is_subscription", False) 
                 return parsed
             elif isinstance(parsed, dict) and "merchant" in parsed:
                 parsed["amount"] = float(parsed["amount"])
-                parsed["is_explicit_setup"] = False
+                parsed["is_explicit_setup"] = parsed.get("is_subscription", False)
                 return [parsed]
         except (json.JSONDecodeError, IndexError, ValueError, TypeError):
             return []
